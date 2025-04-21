@@ -5,6 +5,8 @@ from langchain_core.messages import SystemMessage, HumanMessage
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.output_parsers import StrOutputParser
 from langchain.schema.runnable import RunnablePassthrough,RunnableLambda
+from langchain.globals import set_debug
+from langchain_core.tracers.stdout import ConsoleCallbackHandler
 
 from langchain_postgres.vectorstores import PGVector
 from database import COLLECTION_NAME, CONNECTION_STRING
@@ -24,7 +26,7 @@ import logging
 
 from dotenv import load_dotenv
 load_dotenv()
-
+set_debug(True)
 # Ensure PyTorch module path is correctly set
 torch.classes.__path__ = [os.path.join(torch.__path__[0], torch.classes.__file__)] 
 
@@ -35,7 +37,7 @@ logging.basicConfig(level=logging.INFO)
 # client = redis.Redis(host="localhost", port=6379, db=0)
 
 # Initialize YCQL client
-cluster = Cluster(['127.0.0.1'])
+cluster = Cluster(['10.151.0.160'])
 session = cluster.connect()
 
 # Create the keyspace.
@@ -48,6 +50,18 @@ session.execute(
                                               status varchar);
   """)
 
+# Global Retriever variable for storing and searching documents
+retriever_with_byteStore_vectorStore = None
+
+# Global variable to store log data
+# Initialize log data
+log_data = f"\n\nApp started"
+log_area = None
+def log_data_to_ui(new_log):
+    global log_data
+    log_data += new_log
+    log_area.markdown(f"```\n{log_data}\n```")
+    
 
 #Data Loading
 def load_pdf_data(file_path):
@@ -86,7 +100,7 @@ def summarize_text_and_tables(text, tables):
                     You are to give a concise summary of the table or text and do nothing else. 
                     Table or text chunk: {element} """
     prompt = ChatPromptTemplate.from_template(prompt_text)
-    model = ChatOpenAI(temperature=0.6, model="gpt-4o-mini")
+    model = ChatOpenAI(temperature=0.6, model="gpt-4o-mini", callbacks=[ConsoleCallbackHandler()])
     summarize_chain = {"element": RunnablePassthrough()}| prompt | model | StrOutputParser()
     logging.info(f"{model} done with summarization")
     return {
@@ -158,10 +172,9 @@ def parse_retriver_output(data):
 
 
 # Chat with the LLM using retrieved context
-
-def chat_with_llm(retriever):
-
+def chat_with_llm(retriever, previous_context=None):
     logging.info(f"Context ready to send to LLM ")
+
     prompt_text = """
                 You are an AI Assistant tasked with understanding detailed
                 information from text and tables. You are to answer the question based on the 
@@ -174,19 +187,31 @@ def chat_with_llm(retriever):
                 {question}
                 """
 
+# Combine previous context with the new context
+    def combine_contexts(new_context, previous_context):
+        if previous_context:
+            return f"{previous_context}\n\n{new_context}"
+        return new_context
+
     prompt = ChatPromptTemplate.from_template(prompt_text)
     model = ChatOpenAI(temperature=0.6, model="gpt-4o-mini")
  
     rag_chain = ({
-       "context": retriever | RunnableLambda(parse_retriver_output), "question": RunnablePassthrough(),
-        } 
-        | prompt 
-        | model 
-        | StrOutputParser()
-        )
-        
+                    "context": retriever | RunnableLambda(
+                            lambda output: combine_contexts(
+                                            "\n".join(parse_retriver_output(output) if isinstance(output, list) else []),
+                                            previous_context
+                                        )
+                            ),
+                    "question": RunnablePassthrough(),
+                } 
+                        | prompt 
+                        | model 
+                        | StrOutputParser()
+            )
+    
+    print(rag_chain)
     logging.info(f"Completed! ")
-
     return rag_chain
 
 # Generate temporary file path of uploaded docs
@@ -207,121 +232,148 @@ def _get_file_path(file_upload):
 # Process uploaded PDF file
 def process_pdf(file_upload):
     print('Processing PDF hash info...')
+    log_data_to_ui("\n\nProcessing PDF hash info...")
+    global retriever_with_byteStore_vectorStore
+    retriever_with_byteStore_vectorStore = None
+    if retriever_with_byteStore_vectorStore is None:
+        retriever_with_byteStore_vectorStore = initialize_retriever()
+        print("Retriever initialized")
+        log_data_to_ui("\n\nRetriever initialized")
+        
+    for file in file_upload:    
+        
+        print("Processing file: {}".format(file))
+        log_data_to_ui("\n\nProcessing file: {}".format(file.name))
+        file_path =  _get_file_path(file)
+        pdf_hash = get_pdf_hash(file_path)
+        print("\n\nPDF hash generated for file {}".format(file.name))
     
-    file_path =  _get_file_path(file_upload)
-    pdf_hash = get_pdf_hash(file_path)
-    print("PDF hash generated")
+        query = f"SELECT COUNT(*) FROM langchain.pdf_hash_store WHERE pdf_hash='{pdf_hash}';"
+        existing = session.execute(query).one()[0] > 0
+        
+        if existing:
+            print(f"PDF already exists with hash {pdf_hash}. Skipping upload.")
+            log_data_to_ui(f"\n\nPDF already exists with hash {pdf_hash}. Skipping upload.")
+            return retriever_with_byteStore_vectorStore
 
-    load_retriever = initialize_retriever()
-    print("Retriever initialized")
-    
-    
-    # existing = client.exists(f"pdf:{pdf_hash}")
-    # if existing:
-    #     print(f"PDF already exists with hash {pdf_hash}. Skipping upload.")
-    #     return load_retriever
-    
-    query = f"SELECT COUNT(*) FROM langchain.pdf_hash_store WHERE pdf_hash='{pdf_hash}';"
-    existing = session.execute(query).one()[0] > 0
-    
-    if existing:
-        print(f"PDF already exists with hash {pdf_hash}. Skipping upload.")
-        return load_retriever
 
-
-    print(f"New PDF detected. Processing... {pdf_hash}")
+        print(f"New PDF detected. Processing... {pdf_hash}")
+        log_data_to_ui(f"\n\nNew PDF detected. Processing... {pdf_hash}")
  
-    pdf_elements = load_pdf_data(file_path)
+        pdf_elements = load_pdf_data(file_path)
     
-    tables = [element.metadata.text_as_html for element in
-               pdf_elements if 'Table' in str(type(element))]
+        tables = [element.metadata.text_as_html for element in
+                pdf_elements if 'Table' in str(type(element))]
     
-    text = [element.text for element in pdf_elements if 
-            'CompositeElement' in str(type(element))]
+        text = [element.text for element in pdf_elements if 
+                'CompositeElement' in str(type(element))]
    
-    summaries = summarize_text_and_tables(text, tables)
-    retriever = store_docs_in_retriever(text, summaries['text'], tables,  summaries['table'], load_retriever)
-    
-    # Store the PDF hash in Redis
-    # client.set(f"pdf:{pdf_hash}", json.dumps({"text": "PDF processed"}))  
-    
-    # Insert the PDF hash into the YCQL table
-    
-    session.execute(
-        f"""
-        INSERT INTO langchain.pdf_hash_store (pdf_hash, status)
-        VALUES ('{pdf_hash}', '{json.dumps({"text": "PDF processed"})}');
-        """
-    )
 
-    # Debug: Check if Redis stored the key
-    # stored = client.exists(f"pdf:{pdf_hash}")
-    
-    query = f"SELECT COUNT(*) FROM langchain.pdf_hash_store WHERE pdf_hash='{pdf_hash}';"
-    stored = session.execute(query).one()[0] > 0
-    
-    # #remove temp directory
-    # shutil.rmtree("dir")
-    print(f"Stored PDF hash in YB YCQL: {'Success' if stored else 'Failed'}")
-    return retriever
+        summaries = summarize_text_and_tables(text, tables)
+        retriever_with_byteStore_vectorStore = store_docs_in_retriever(
+            text, summaries['text'], tables,  summaries['table'], 
+            retriever_with_byteStore_vectorStore)
+        log_data_to_ui(f"\n\nSummarized data and stored in retriever")
+        
+        # Insert the PDF hash into the YCQL table
+        
+        session.execute(
+            f"""
+            INSERT INTO langchain.pdf_hash_store (pdf_hash, status)
+            VALUES ('{pdf_hash}', '{json.dumps({"text": "PDF processed"})}');
+            """
+        )
+        
+        query = f"SELECT COUNT(*) FROM langchain.pdf_hash_store WHERE pdf_hash='{pdf_hash}';"
+        stored = session.execute(query).one()[0] > 0
+        
+        print(f"Stored PDF hash in YB YCQL: {'Success' if stored else 'Failed'}")
+        log_data_to_ui(f"\n\nStored PDF hash in YB YCQL: {'Success' if stored else 'Failed'}")
+        
+    return retriever_with_byteStore_vectorStore
 
 
 #Invoke chat with LLM based on uploaded PDF and user query
-def invoke_chat(file_upload, message):
-
+def invoke_chat(file_upload, message, previous_context=None):
     retriever = process_pdf(file_upload)
-    rag_chain = chat_with_llm(retriever)
+    log_data_to_ui(f"\n\nGenerate Prompt with Context and User Query")
+    rag_chain = chat_with_llm(retriever, previous_context)
     response = rag_chain.invoke(message)
+    log_data_to_ui(f"\n\nChat with LLM invoked")
     response_placeholder = st.empty()
     response_placeholder.write(response)
     return response
 
-
 # Main application interface using Streamlit
 def main():
   
+    st.set_page_config(
+        page_title="PDF Chat Assistant",
+        page_icon=":book:",
+        layout="wide",
+        initial_sidebar_state="expanded",
+    )
     st.title("PDF Chat Assistant ")
+    st.markdown("</br></br>", unsafe_allow_html=True)
+    
+    chatBotCol, loggerCol = st.columns([1, 1], border=True)
+    global log_area
+    with loggerCol:
+        log_area = st.empty()
+    
     logging.info("App started")
 
     if 'messages' not in st.session_state:
         st.session_state.messages = []
 
+# Maintain a session state for context
+    if 'context' not in st.session_state:
+        st.session_state.context = None
  
     file_upload = st.sidebar.file_uploader(
     label="Upload", type=["pdf"], 
-    accept_multiple_files=False,
+    accept_multiple_files=True,
     key="pdf_uploader"
     )
 
     if file_upload:     
         st.success("File uploaded successfully! You can now ask your question.")
+        log_data_to_ui("\n\nFile uploaded successfully! You can now ask your question.")
 
-    # Prompt for user input
-    if prompt := st.chat_input("Your question"):
-        st.session_state.messages.append({"role": "user", "content": prompt})
+    with chatBotCol:
+        # Prompt for user input
+        if prompt := st.chat_input("Your question"):
+            st.session_state.messages.append({"role": "user", "content": prompt})
 
-    # Display chat history
-    for message in st.session_state.messages:
-        with st.chat_message(message["role"]):
-            st.write(message["content"])
+        # Display chat history
+        for message in st.session_state.messages:
+            with st.chat_message(message["role"]):
+                st.write(message["content"])
 
-    # Generate response if last message is not from assistant
-    if st.session_state.messages and st.session_state.messages[-1]["role"] != "assistant":
-        with st.chat_message("assistant"):
-            start_time = time.time()
-            logging.info("Generating response...")
-            with st.spinner("Processing..."):
-                user_message = " ".join([msg["content"] for msg in st.session_state.messages if msg])           
-                response_message = invoke_chat(file_upload, user_message)
-        
-                duration = time.time() - start_time
-                response_msg_with_duration = f"{response_message}\n\nDuration: {duration:.2f} seconds"
+        # Generate response if last message is not from assistant
+        if st.session_state.messages and st.session_state.messages[-1]["role"] != "assistant":
+            with st.chat_message("assistant"):
+                start_time = time.time()
+                
+                logging.info("Generating response...")
+                log_data_to_ui("\n\nGenerating response...")
+                
+                with st.spinner("Processing..."):
+                    user_message = " ".join([msg["content"] for msg in st.session_state.messages if msg])
+                    print(f"User message: {user_message}")           
+                    response_message = invoke_chat(file_upload, user_message, st.session_state.context)
 
-                st.session_state.messages.append({"role": "assistant", "content": response_msg_with_duration})
-                st.write(f"Duration: {duration:.2f} seconds")
-                logging.info(f"Response: {response_message}, Duration: {duration:.2f} s")
-
-
+                    # Update the context with the new response
+                    st.session_state.context = response_message
+                    print(f"Context updated: {st.session_state.context}")
+                    
+                    duration = time.time() - start_time
+                    response_msg_with_duration = f"{response_message}\n\nDuration: {duration:.2f} seconds"
+                    st.session_state.messages.append({"role": "assistant", "content": response_msg_with_duration})
+                    st.write(f"Duration: {duration:.2f} seconds")
+                    
+                    logging.info(f"Response: {response_message}, Duration: {duration:.2f} s")
+                    log_data_to_ui(f"\n\nResponse from LLM: {response_message}, Duration: {duration:.2f} s")
     
 
 
