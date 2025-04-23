@@ -329,21 +329,35 @@ def main():
 # Maintain a session state for context
     if 'context' not in st.session_state:
         st.session_state.context = None
+        
+    with st.sidebar:    
  
-    file_upload = st.sidebar.file_uploader(
-    label="Upload", type=["pdf"], 
-    accept_multiple_files=True,
-    key="pdf_uploader"
-    )
+        file_upload = st.sidebar.file_uploader(
+        label="Upload", type=["pdf"], 
+        accept_multiple_files=True,
+        key="pdf_uploader"
+        )
+        
+        if file_upload:     
+            st.success("File uploaded successfully! You can now ask your question.")
+            log_data_to_ui("\n\nFile uploaded successfully! You can now ask your question.")
+            
+        sample_questions = "What is a Replication Factor in YugabyteDB?", "who are the customers of YugabyteDB?"
 
-    if file_upload:     
-        st.success("File uploaded successfully! You can now ask your question.")
-        log_data_to_ui("\n\nFile uploaded successfully! You can now ask your question.")
+        for text in sample_questions:
+            if st.button(text, key=text):
+                st.session_state["sample"] = text
 
     with chatBotCol:
-        # Prompt for user input
+        
         if prompt := st.chat_input("Your question"):
-            st.session_state.messages.append({"role": "user", "content": prompt})
+                st.session_state.messages.append({"role": "user", "content": prompt})
+                st.session_state["sample"] = None
+
+        if "sample" in st.session_state and st.session_state["sample"] is not None:
+            user_input = st.session_state["sample"]
+            st.session_state.messages.append({"role": "user", "content": user_input})
+            
 
         # Display chat history
         for message in st.session_state.messages:
@@ -359,13 +373,15 @@ def main():
                 log_data_to_ui("\n\nGenerating response...")
                 
                 with st.spinner("Processing..."):
-                    user_message = " ".join([msg["content"] for msg in st.session_state.messages if msg])
-                    print(f"User message: {user_message}")           
-                    response_message = invoke_chat(file_upload, user_message, st.session_state.context)
+                    # user_message = " ".join([msg["content"] for msg in st.session_state.messages if msg])
+                    latest_message = st.session_state.messages[-1]
+                    user_message = latest_message["content"]          
+                    response_message = invoke_chat(file_upload, user_message)
 
                     # Update the context with the new response
-                    st.session_state.context = response_message
-                    print(f"Context updated: {st.session_state.context}")
+                    # response_message = invoke_chat(file_upload, user_message, st.session_state.context)
+                    # st.session_state.context = response_message
+                    # print(f"Context updated: {st.session_state.context}")
                     
                     duration = time.time() - start_time
                     response_msg_with_duration = f"{response_message}\n\nDuration: {duration:.2f} seconds"
