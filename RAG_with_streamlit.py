@@ -308,12 +308,12 @@ def invoke_chat(file_upload, message, previous_context=None):
 def main():
   
     st.set_page_config(
-        page_title="PDF Chat Assistant",
+        page_title="US Tariff Chat Assistant",
         page_icon=":book:",
         layout="wide",
         initial_sidebar_state="expanded",
     )
-    st.title("PDF Chat Assistant ")
+    st.title("US Tariff Impact Analysis App")
     st.markdown("</br></br>", unsafe_allow_html=True)
     
     chatBotCol, loggerCol = st.columns([1, 1], border=True)
