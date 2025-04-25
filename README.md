@@ -33,4 +33,4 @@ LittleHorse.io handles the AI workflow orchestration, enabling scalable, reliabl
 #### LLM
 - **GPT** (via OpenAI API or local model)
 
-Inspired by the work done by https://github.com/Mercytopsy/pdf-rag-chatbot-streamlit
+Inspired by the work done done LangChain
