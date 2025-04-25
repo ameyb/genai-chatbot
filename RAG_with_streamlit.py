@@ -37,7 +37,7 @@ logging.basicConfig(level=logging.INFO)
 # client = redis.Redis(host="localhost", port=6379, db=0)
 
 # Initialize YCQL client
-cluster = Cluster(['10.151.0.160'])
+cluster = Cluster(['127.0.0.1'])
 session = cluster.connect()
 
 # Create the keyspace.
@@ -175,17 +175,43 @@ def parse_retriver_output(data):
 def chat_with_llm(retriever, previous_context=None):
     logging.info(f"Context ready to send to LLM ")
 
-    prompt_text = """
-                You are an AI Assistant tasked with understanding detailed
-                information from text and tables. You are to answer the question based on the 
-                context provided to you. You must not go beyond the context given to you.
-                
-                Context:
-                {context}
 
-                Question:
-                {question}
+    prompt_text = """Human: You are an International Trade and Tariff Regulations expert who can answer questions only based on the context provided below.
+
+                    Answer the question STRICTLY based on the US Tariff data context provided in JSON below.
+
+                    Do not assume or retrieve any information outside of the context.
+
+                    Keep the answer concise, using three sentences maximum for text responses.
+
+                    Think step-by-step to ensure accuracy based on the context provided.
+
+                    If multiple results exist (e.g., multiple tariff rates, product categories, exemptions), present them as a bulleted list, numbered list, or in a table.
+
+                    If numerical comparisons or trends are evident in the context, you may present a simple chart or table to make the information easier to understand.
+
+                    Use tables for structured data (e.g., tariff codes, product descriptions, rates) and simple bar or line charts for comparisons (e.g., tariff rate trends).
+
+                    Do not add any extra commentary, apologies, summaries, or retrievals beyond the provided context.
+
+                    Do not start the response with "Here is a summary" or similar phrasing.
+
+                    If the context is empty, respond with: None.
+
+                    Always prioritize clarity and relevance in the format you choose (plain text, table, or chart).
+
+                    Here is the context:
+                    <context>
+                    {context}
+                    </context>
+
+                    Question:
+                    {question}
                 """
+
+
+
+
 
 # Combine previous context with the new context
     def combine_contexts(new_context, previous_context):
