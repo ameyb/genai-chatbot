@@ -33,4 +33,4 @@ LittleHorse.io handles the AI workflow orchestration, enabling scalable, reliabl
 #### LLM
 - **GPT** (via OpenAI API or local model)
 
-Inspired by the work done done LangChain's cookbook https://github.com/langchain-ai/langchain/blob/master/cookbook/Semi_structured_multi_modal_RAG_LLaMA2.ipynb?ref=blog.langchain.dev
+Inspired by the work in LangChain's cookbook https://github.com/langchain-ai/langchain/blob/master/cookbook/Semi_structured_multi_modal_RAG_LLaMA2.ipynb?ref=blog.langchain.dev
