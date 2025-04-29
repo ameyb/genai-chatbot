@@ -19,6 +19,10 @@ from langchain.retrievers.multi_vector import MultiVectorRetriever
 from pathlib import Path
 from IPython.display import display, HTML
 from base64 import b64decode
+from streamlit_extras.stylable_container import stylable_container
+from streamlit_extras.add_vertical_space import add_vertical_space
+from streamlit_extras.stateful_chat import chat as fancy_chat
+
 import os, hashlib, shutil, uuid, json, time
 import torch, streamlit as st
 import logging
@@ -37,7 +41,7 @@ logging.basicConfig(level=logging.INFO)
 # client = redis.Redis(host="localhost", port=6379, db=0)
 
 # Initialize YCQL client
-cluster = Cluster(['127.0.0.1'])
+cluster = Cluster(['10.150.2.56'])
 session = cluster.connect()
 
 # Create the keyspace.
@@ -59,8 +63,10 @@ log_data = f"\n\nApp started"
 log_area = None
 def log_data_to_ui(new_log):
     global log_data
+    global log_area
     log_data += new_log
-    log_area.markdown(f"```\n{log_data}\n```")
+    if log_area is not None:  # <- ✅ Protect against None
+        log_area.markdown(f"```\n{log_data}\n```")
     
 
 #Data Loading
@@ -334,91 +340,118 @@ def invoke_chat(file_upload, message, previous_context=None):
 def main():
   
     st.set_page_config(
-        page_title="US Tariff Chat Assistant",
-        page_icon=":book:",
+        page_title="Economic Assistant",
+        page_icon="📦",
         layout="wide",
         initial_sidebar_state="expanded",
     )
-    st.title("US Tariff Impact Analysis App")
-    st.markdown("</br></br>", unsafe_allow_html=True)
+
+    st.markdown("""
+        <div style="text-align: center; padding: 20px; background-image: url('data:image/jpeg;base64,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');">
+            <h1 style='font-size: 50px; color: #FFB347;'>Economic Assistant</h1>
+            <h4 style='color: white;'>Understanding Trade Impacts, One Document at a Time</h4>
+        </div>
+        """, unsafe_allow_html=True)
+    st.divider()
     
-    chatBotCol, loggerCol = st.columns([1, 1], border=True)
+    chatBotCol, loggerCol = st.columns([1, 1], gap="large")
     global log_area
     with loggerCol:
         log_area = st.empty()
     
-    logging.info("App started")
-
-    if 'messages' not in st.session_state:
-        st.session_state.messages = []
-
-# Maintain a session state for context
-    if 'context' not in st.session_state:
-        st.session_state.context = None
-        
-    with st.sidebar:    
- 
-        file_upload = st.sidebar.file_uploader(
-        label="Upload", type=["pdf"], 
-        accept_multiple_files=True,
-        key="pdf_uploader"
+     # Sidebar: File Upload + Sample Questions
+    with st.sidebar:
+        st.header("📦 Import Trade Documents")
+        file_upload = st.file_uploader(
+            label="Upload your Trade PDFs",  
+            type=["pdf"], 
+            accept_multiple_files=True,
+            key="pdf_uploader"
         )
-        
-        if file_upload:     
-            st.success("File uploaded successfully! You can now ask your question.")
-            log_data_to_ui("\n\nFile uploaded successfully! You can now ask your question.")
-            
-        sample_questions = "What is a Replication Factor in YugabyteDB?", "who are the customers of YugabyteDB?"
+
+        if file_upload:
+            st.success(f"{len(file_upload)} file(s) uploaded!", icon="✅")
+            st.write(f"**Files Uploaded:**")
+            for file in file_upload:
+                st.write(f"- {file.name}")
+        else:
+            st.info("📂 Please upload one or more tariff documents to begin.")
+
+        st.markdown("---")
+        st.subheader("🔎 Try Asking:")
+        sample_questions = "What are the latest aluminum tariffs?", "Steel import tax from China?"
 
         for text in sample_questions:
             if st.button(text, key=text):
                 st.session_state["sample"] = text
 
+    # Chat Section
     with chatBotCol:
-        
-        if prompt := st.chat_input("Your question"):
-                st.session_state.messages.append({"role": "user", "content": prompt})
-                st.session_state["sample"] = None
+        if 'messages' not in st.session_state:
+            st.session_state.messages = []
+
+        if 'context' not in st.session_state:
+            st.session_state.context = None
+
+        add_vertical_space(1)
+
+        # stylable_container(
+        #     key="chat_container",
+        #     css_styles="""
+        #         {
+        #             background-color: #f4f6f8;
+        #             padding: 20px;
+        #             border-radius: 12px;
+        #             box-shadow: 0px 4px 12px rgba(0,0,0,0.1);
+        #         }
+        #     """,
+        # )
+
+        # Fancy chat input
+        user_prompt = st.chat_input("Ask a question about the uploaded document...")
+
+
+        if user_prompt:
+            st.session_state.messages.append({"role": "user", "content": user_prompt})
+            st.session_state["sample"] = None
 
         if "sample" in st.session_state and st.session_state["sample"] is not None:
             user_input = st.session_state["sample"]
             st.session_state.messages.append({"role": "user", "content": user_input})
-            
+            st.session_state["sample"] = None
 
-        # Display chat history
-        for message in st.session_state.messages:
-            with st.chat_message(message["role"]):
-                st.write(message["content"])
+        # Show chat history nicely
+        for idx, message in enumerate(st.session_state.messages):
+            if message["role"] == "user":
+                with st.chat_message("user", avatar="👤"):
+                    st.markdown(f"**You:** {message['content']}")
+            elif message["role"] == "assistant":
+                with st.chat_message("assistant", avatar="🤖"):
+                    st.markdown(f"**Assistant:** {message['content']}")
 
-        # Generate response if last message is not from assistant
+        # Generate assistant response
         if st.session_state.messages and st.session_state.messages[-1]["role"] != "assistant":
-            with st.chat_message("assistant"):
+            with st.chat_message("assistant", avatar="🤖"):
                 start_time = time.time()
-                
-                logging.info("Generating response...")
-                log_data_to_ui("\n\nGenerating response...")
-                
-                with st.spinner("Processing..."):
-                    # user_message = " ".join([msg["content"] for msg in st.session_state.messages if msg])
+
+                with st.spinner("✨ Thinking..."):
                     latest_message = st.session_state.messages[-1]
-                    user_message = latest_message["content"]          
+                    user_message = latest_message["content"]
                     response_message = invoke_chat(file_upload, user_message)
 
-                    # Update the context with the new response
-                    # response_message = invoke_chat(file_upload, user_message, st.session_state.context)
-                    # st.session_state.context = response_message
-                    # print(f"Context updated: {st.session_state.context}")
-                    
                     duration = time.time() - start_time
-                    response_msg_with_duration = f"{response_message}\n\nDuration: {duration:.2f} seconds"
-                    st.session_state.messages.append({"role": "assistant", "content": response_msg_with_duration})
-                    st.write(f"Duration: {duration:.2f} seconds")
-                    
-                    logging.info(f"Response: {response_message}, Duration: {duration:.2f} s")
-                    log_data_to_ui(f"\n\nResponse from LLM: {response_message}, Duration: {duration:.2f} s")
+                    response_content = f"{response_message}\n\n⏱️ *Response Time: {duration:.2f} seconds*"
+                    st.markdown(response_content)
+
+                    st.session_state.messages.append({"role": "assistant", "content": response_content})
+
+    # Logger Section
+    with loggerCol:
+        with st.expander("📜 Logs (click to expand)", expanded=False):
+            log_area.markdown(f"```\n{log_data}\n```")
     
+    logging.info("App started")
 
-
-
+   
 if __name__ == "__main__":
     main()
