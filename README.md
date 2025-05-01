@@ -1,36 +1,86 @@
-### 📌 Overview
+# LittleHorse Enterprises - AI Yugabyte Examples
 
-This project implements a **Retrieval-Augmented Generation (RAG)** pipeline for efficient document processing and knowledge retrieval. It extracts text and tables from PDFs using the **Unstructured** library, stores raw PDFs, and indexes extracted embeddings in **PGVector** for semantic search. The system leverages **MultiVector Retriever** for context retrieval before querying an **LLM (GPT model)**.
+This example simulates a Retrieval Augmented Generation (RAG) workflow for real-time data processing and summarization. This workflow leverages a Yugabyte database with Postgres for data storage and LittleHorse for workflow orchestration.
 
-### 🚀 Features
+## Features
 
-- **Unstructured Document Processing**: Extracts text and tables from PDFs.  
+- **PDF Processing**: Load and process PDF files from a specified directory.
+- **Text Chunking**: Split text into manageable chunks for embedding.
+- **AI Integration**: Use OpenAI models for text embedding and summarization.
 - **YugabyteDB for Raw Storage**: Stores and retrieves raw PDFs efficiently, to implement persistent storage.  
 - **YugabyteDB's PGVector support for Vector Storage**: Indexes and retrieves high-dimensional embeddings for similarity search.  
 - **MultiVector Retriever**: Optimized for retrieving contextual information from multiple sources.  
-- **LLM Integration**: Uses a **GPT model** or anyother LLM implementation to generate responses based on retrieved context.  
+- **Workflow Automation**: Automate and orchestrate tasks using LittleHorse Workflow Engine.
+- **LLM Integration**: Uses a **GPT model** or any other LLM implementation to generate responses based on retrieved context.  
+- **Chat UI**: Talk to an LLM about your PDF data
 
-### 🛠️ Tech Stack
+## Prerequisites
 
-#### Programming Language
-- Python  
+- Python 3.9+
+- OpenAI API key
+- Docker
 
-#### Libraries
-- `unstructured`
-- `pgvector`
-- `langchain`
-- `openai`
+## Installation
 
+1. Clone the repository:
 
-#### Databases
-- **YugabyteDB**: For raw PDF storage  
-- **YugabyteDB + PGVector**: For embeddings storage  
-YugabyteDB provides a scalable vector store and a globally consistent system of record, ideal for RAG (Retrieval-Augmented Generation) architectures that require fast, real-time access to relevant data.
+   ```bash
+      git clone https://github.com/littlehorse-enterprises/lh-examples.git
+      cd lh-examples/ai/rag/backend
+   ```
 
-#### Workflow Orchesration
-LittleHorse.io handles the AI workflow orchestration, enabling scalable, reliable microservice coordination with built-in support for retries, state management, and observability. Together, they enable the next generation of context-aware, workflow-driven generative AI applications.
+2. Create and activate a python virtual environment:
 
-#### LLM
-- **GPT** (via OpenAI API or local model)
+   ```bash
+      python -m venv .venv
+      source .venv/bin/activate # On Windows: .venv\Scripts\activate
+   ```
 
-Inspired by the work in LangChain's cookbook https://github.com/langchain-ai/langchain/blob/master/cookbook/Semi_structured_multi_modal_RAG_LLaMA2.ipynb?ref=blog.langchain.dev
+3. Install python dependencies:
+
+   ```bash
+      pip install -r requirements.txt
+   ```
+
+4. Set up environment variables:
+
+   Rename the `.env.example` file to `.env` and fill in the `OPENAI_API_KEY` variable with your API key.
+
+5. Set up your instances of the Frontend, LittleHorse, and Yugabyte with Docker:
+
+   ```bash
+      docker compose up --build -d
+   ```
+
+Note: you may need to add `sudo` before the docker command.
+
+## How it Works
+
+The workflow simulates uploading a PDF to an LLM by pulling a file from the `temp` directory. When the PDF is received, the workflow extracts the text, converts it to embeddings, and stores them in a vector database provided by Yugabyte. Another workflow is launched that allows the user to interact with a chatbot that uses the uploaded PDF data as context.
+
+## Running the Example
+
+Assuming `docker compose up` ran successfully, open up a new terminal and run:
+
+```bash
+   source .venv/bin/activate # On Windows: .venv\Scripts\activate
+   python main.py
+```
+
+This will register the task definitions `TaskDef`s with the Littlehorse server and start each dedicated task worker to begin polling for tasks. These task workers live on your local machine, and persist until they are stopped.
+
+Note: if the terminal output says something like: `Establishing insecure channel at localhost:2023`, that is OK.
+
+That is it! The workflow is now running on Littlehorse! You can view the UI by navigating to the Littlehorse Dashboard at:
+
+<https://localhost:8080>
+
+There, you will be able to see the various `TaskDef`s and `WfSpec`s that are registered. You can view all of the runs for a specific workflow by clicking on the workflow spec.
+
+Note: Littlehorse stores and logs the output of all workflow runs, click on a link to a specific workflow run below to view the status of the workflow.
+
+Note: if you want to restart the code, you need to run `docker compose down` and then `docker compose up` again to reset the server.
+
+## Viewing the UI
+
+The chat interface is viewable by navigating to <https://localhost:3000> here you will be able to interact with the GPT model and ask questions relevant to your data!
