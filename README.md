@@ -1,6 +1,6 @@
-# LittleHorse Enterprises - AI Yugabyte Examples
+# Build intelligent data layers using scalable GenAI apps with YugabyteDB and LittleHorse Enterprise
 
-This example simulates a Retrieval Augmented Generation (RAG) workflow for real-time data processing and summarization. This workflow leverages a Yugabyte database with Postgres for data storage and LittleHorse for workflow orchestration.
+This example simulates a Retrieval Augmented Generation (RAG) - Contextual Data Retrieval workflow for real-time data processing and summarization. This workflow leverages a Yugabyte database with PGvector for vector indexing & storage and LittleHorse for workflow orchestration.
 
 ## Features
 
